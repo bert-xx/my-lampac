@@ -1,38 +1,37 @@
-FROM ubuntu:22.04
+# Используем образ с предустановленным .NET 9 Runtime
+FROM mcr.microsoft.com/dotnet/runtime:9.0
 
-# Устанавливаем всё необходимое сразу
+# Устанавливаем необходимые системные зависимости
 RUN apt-get update && apt-get install -y \
     wget \
     unzip \
-    libicu-dev \
-    libssl-dev \
     ca-certificates \
     sed \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# 1. Скачиваем Lampac
-RUN wget --no-check-certificate https://github.com/immisterio/lampac/releases/latest/download/lampac-linux-x64.zip \
-    && unzip lampac-linux-x64.zip \
-    && rm lampac-linux-x64.zip \
-    && chmod +x lampac
+# 1. Скачиваем актуальный релиз Lampac (теперь это publish.zip)
+RUN wget --no-check-certificate https://github.com/immisterio/Lampac/releases/latest/download/publish.zip \
+    && unzip publish.zip \
+    && rm publish.zip \
+    && chmod +x Lampac
 
-# 2. Скачиваем плагин локально
-RUN wget --no-check-certificate http://bwa.to/rc -O /app/bwa_rc.js
+# 2. Скачиваем ваш локальный плагин
+RUN wget --no-check-certificate http://bwa.to/rc -O /app/wwwroot/bwa_rc.js || wget --no-check-certificate http://bwa.to/rc -O /app/bwa_rc.js
 
-# 3. Копируем конфиг
+# 3. Копируем ваш конфиг
 COPY init.conf /app/init.conf
 
-# 4. Создаем надежный скрипт запуска
+# 4. Создаем скрипт запуска для подмены порта Koyeb
 RUN echo '#!/bin/bash' > /app/entrypoint.sh && \
     echo 'if [ -n "$PORT" ]; then' >> /app/entrypoint.sh && \
     echo '  sed -i "s/\"listen_port\": 9118/\"listen_port\": ${PORT}/g" /app/init.conf' >> /app/entrypoint.sh && \
     echo 'fi' >> /app/entrypoint.sh && \
-    echo './lampac' >> /app/entrypoint.sh && \
+    echo 'dotnet Lampac.dll' >> /app/entrypoint.sh && \
     chmod +x /app/entrypoint.sh
 
-# Koyeb использует 8000, 8080 или динамический PORT
+# Koyeb работает через порт 8000 по умолчанию
 EXPOSE 8000
 
 CMD ["/app/entrypoint.sh"]
