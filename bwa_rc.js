@@ -1,126 +1,392 @@
-(function() {
-  'use strict';
-
-  var Defined = {
-    api: 'lampac',
+(function () {
+    'use strict';
     
-    localhost: 'https://valuable333.koyeb.app/', 
-    apn: ''
-  };
+    var Q_LOGGING = true; // Р›РѕРіРіРёРЅРі РєР°С‡РµСЃС‚РІР°
+    var Q_CACHE_TIME = 24 * 60 * 60 * 1000; // Р’СЂРµРјСЏ РєРµС€РёСЂРѕРІР°РЅРёСЏ РєР°С‡РµСЃС‚РІР°
+    var QUALITY_CACHE = 'maxsm_ratings_quality_cache';
+    var JACRED_PROTOCOL = 'http://'; // РџСЂРѕС‚РѕРєРѕР» JacRed
+    var JACRED_URL = Lampa.Storage.get('jacred.xyz') || 'jacred.xyz'; // РђРґСЂРµСЃ JacRed
+    var JACRED_API_KEY = Lampa.Storage.get(''); // api РєР»СЋС‡ JacRed
+    var PROXY_TIMEOUT = 5000; // РўР°Р№РјР°СѓС‚ РїСЂРѕРєСЃРё
+    var PROXY_LIST = [
+        'http://api.allorigins.win/raw?url=',
+        'http://cors.bwa.workers.dev/'
+    ];
 
-  var unic_id = Lampa.Storage.get('lampac_unic_id', Lampa.Utils.uid(8));
+    // РЎС‚РёР»Рё РґР»СЏ РѕС‚РѕР±СЂР°Р¶РµРЅРёСЏ РєР°С‡РµСЃС‚РІР° - Р§Р•Р РќРђРЇ РїРѕРґР»РѕР¶РєР°, Р‘Р•Р›Р«Р™ С‚РµРєСЃС‚
+    var style = "<style id=\"maxsm_ratings_quality\">" +
+        ".card__view {position: relative !important;}" +
+        ".card__quality { " +
+        "   position: absolute !important; " +
+        "   bottom: 0.5em !important; " +
+        "   left: -0.8em !important; " +
+        "   background-color: transparent !important; " +
+        "   z-index: 10; " +
+        "   width: fit-content !important; " +
+        "   max-width: calc(100% - 1em) !important; " +
+        "}" +
+        ".card__quality div { " +
+        "   text-transform: none !important; " +
+        "   border: 1px solid #FFFFFF !important; " +
+        "   background-color: rgba(0, 0, 0, 0.7) !important; " + // Р§РµСЂРЅР°СЏ РїРѕР»СѓРїСЂРѕР·СЂР°С‡РЅР°СЏ РїРѕРґР»РѕР¶РєР°
+        "   color: #FFFFFF !important; " + // Р‘РµР»С‹Р№ С‚РµРєСЃС‚
+        "   font-weight: bold !important; " + // Р–РёСЂРЅС‹Р№ С€СЂРёС„С‚
+        "   font-style: normal !important; " + // РќРµ РєСѓСЂСЃРёРІ
+        "   font-size: 1.2em !important; " +
+        "   border-radius: 3px !important; " +
+        "   padding: 0.2em 0.4em !important; " +
+        "}" +
+        "</style>";
 
-  
-  function account(url) {
-    url = url + '';
-    if (url.indexOf('uid=') == -1) {
-      url = Lampa.Utils.addUrlComponent(url, 'uid=' + encodeURIComponent(unic_id));
+    Lampa.Template.add('maxsm_ratings_quality_css', style);
+    $('body').append(Lampa.Template.get('maxsm_ratings_quality_css', {}, true));
+
+    // Р¤СѓРЅРєС†РёСЏ РґР»СЏ РїРѕР»СѓС‡РµРЅРёСЏ С‚РёРїР° РєР°СЂС‚РѕС‡РєРё
+    function getCardType(card) {
+        var type = card.media_type || card.type;
+        if (type === 'movie' || type === 'tv') return type;
+        return card.name || card.original_name ? 'tv' : 'movie';
     }
-    return url;
-  }
 
-  function component(object) {
-    var network = new Lampa.Reguest();
-    var scroll = new Lampa.Scroll({ mask: true, over: true });
-    var files = new Lampa.Explorer(object);
-    var filter = new Lampa.Filter(object);
-    var sources = {};
-    var balanser;
-    var filter_sources = [];
+    // Р¤СѓРЅРєС†РёСЏ РґР»СЏ СЂР°Р±РѕС‚С‹ СЃ РїСЂРѕРєСЃРё
+    function fetchWithProxy(url, cardId, callback) {
+        var currentProxyIndex = 0;
+        var callbackCalled = false;
 
-    this.initialize = function() {
-      var _this = this;
-      this.loading(true);
-      
-      
-      var url = this.requestParams(Defined.localhost + 'lite/events');
-      network.silent(account(url), function(json) {
-        if (json.online) {
-          json.online.forEach(function(j) {
-            var name = (j.balanser || j.name.split(' ')[0]).toLowerCase();
-            sources[name] = { url: j.url, name: j.name };
-          });
-          filter_sources = Object.keys(sources);
-          balanser = Lampa.Storage.get('online_balanser', filter_sources[0]);
-          if(!sources[balanser]) balanser = filter_sources[0];
-          _this.find();
-        } else { _this.empty(); }
-      }, function() { _this.empty(); });
-    };
+        function tryNextProxy() {
+            if (currentProxyIndex >= PROXY_LIST.length) {
+                if (!callbackCalled) {
+                    callbackCalled = true;
+                    callback(new Error('All proxies failed for ' + url));
+                }
+                return;
+            }
+            var proxyUrl = PROXY_LIST[currentProxyIndex] + encodeURIComponent(url);
+            if (Q_LOGGING) console.log("MAXSM-RATINGS", "card: " + cardId + ", Fetch with proxy: " + proxyUrl);
+            var timeoutId = setTimeout(function() {
+                if (!callbackCalled) {
+                    currentProxyIndex++;
+                    tryNextProxy();
+                }
+            }, PROXY_TIMEOUT);
+            fetch(proxyUrl)
+                .then(function(response) {
+                    clearTimeout(timeoutId);
+                    if (!response.ok) throw new Error('Proxy error: ' + response.status);
+                    return response.text();
+                })
+                .then(function(data) {
+                    if (!callbackCalled) {
+                        callbackCalled = true;
+                        clearTimeout(timeoutId);
+                        callback(null, data);
+                    }
+                })
+                .catch(function(error) {
+                    console.error("MAXSM-RATINGS", "card: " + cardId + ", Proxy fetch error for " + proxyUrl + ":", error);
+                    clearTimeout(timeoutId);
+                    if (!callbackCalled) {
+                        currentProxyIndex++;
+                        tryNextProxy();
+                    }
+                });
+        }
+        tryNextProxy();
+    }
 
-    this.requestParams = function(url) {
-      var query = [];
-      query.push('id=' + encodeURIComponent(object.movie.id));
-      query.push('title=' + encodeURIComponent(object.movie.title || object.movie.name));
-      query.push('serial=' + (object.movie.name ? 1 : 0));
-      query.push('year=' + ((object.movie.release_date || object.movie.first_air_date || '0000') + '').slice(0, 4));
-      return url + (url.indexOf('?') >= 0 ? '&' : '?') + query.join('&');
-    };
+    // Р¤СѓРЅРєС†РёСЏ РїРѕР»СѓС‡РµРЅРёСЏ РєР°С‡РµСЃС‚РІР° РёР· JacRed
+    function getBestReleaseFromJacred(normalizedCard, cardId, callback) {
+        if (!JACRED_URL) {
+            if (Q_LOGGING) console.log("MAXSM-RATINGS", "card: " + cardId + ", quality: JacRed: JACRED_URL is not set.");
+            callback(null);
+            return;
+        }
 
-    this.find = function() {
-      this.request(this.requestParams(sources[balanser].url));
-    };
+        function translateQuality(quality) {
+            if (typeof quality !== 'number') return quality;
+            if (quality >= 2160) return '4K';
+            if (quality >= 1080) return 'FHD';
+            if (quality >= 720) return 'HD';
+            if (quality > 0) return 'SD';
+            return null;
+        }
 
-    this.request = function(url) {
-      var _this = this;
-      network.native(account(url), function(str) {
-        _this.parse(str);
-      }, function() { _this.empty(); }, false, { dataType: 'text' });
-    };
+        if (Q_LOGGING) console.log("MAXSM-RATINGS", "card: " + cardId + ", quality: JacRed: Search initiated.");
+        var year = '';
+        var dateStr = normalizedCard.release_date || '';
+        if (dateStr.length >= 4) {
+            year = dateStr.substring(0, 4);
+        }
+        if (!year || isNaN(year)) {
+            if (Q_LOGGING) console.log("MAXSM-RATINGS", "card: " + cardId + ", quality: JacRed: Missing/invalid year.");
+            callback(null);
+            return;
+        }
 
-    this.parse = function(str) {
-      this.loading(false);
-      try {
-        var html = $('<div>' + str + '</div>');
-        var items = [];
-        html.find('.videos__item').each(function() {
-          var data = JSON.parse($(this).attr('data-json'));
-          data.text = $(this).text();
-          items.push(data);
-        });
-        if (items.length) this.display(items);
-        else this.empty();
-      } catch (e) { this.empty(); }
-    };
+        function searchJacredApi(searchTitle, searchYear, exactMatch, strategyName, apiCallback) {
+            var userId = Lampa.Storage.get('lampac_unic_id', '');
+            var apiUrl = JACRED_PROTOCOL + JACRED_URL + '/api/v1.0/torrents?search=' +
+                encodeURIComponent(searchTitle) +
+                '&year=' + searchYear +
+                (exactMatch ? '&exact=true' : '') +
+                '&uid=' + userId;
 
-    this.display = function(items) {
-      var _this = this;
-      scroll.clear();
-      items.forEach(function(element) {
-        var html = Lampa.Template.get('button', { title: element.text, description: element.quality || '' });
-        html.on('hover:enter', function() {
-          if (element.method == 'play' || element.url) {
-            Lampa.Player.play({ url: element.url, title: element.text, movie: object.movie });
-            _this.mark(element);
-          }
-        });
-        scroll.append(html);
-      });
-      Lampa.Controller.enable('content');
-    };
+            if (Q_LOGGING) console.log("MAXSM-RATINGS", "card: " + cardId + ", quality: JacRed: " + strategyName + " URL: " + apiUrl);
 
-    this.mark = function(elem) { /* Логика отметки просмотра */ };
-    this.empty = function() { this.loading(false); scroll.clear(); scroll.append($('<div class="empty">На вашем сервере Lampac ничего не найдено</div>')); };
-    this.loading = function(status) { this.activity.loader(status); if(!status) this.activity.toggle(); };
-    this.render = function() { return files.render(); };
-    this.destroy = function() { network.clear(); scroll.destroy(); };
-  }
+            var timeoutId = setTimeout(function() {
+                if (Q_LOGGING) console.log("MAXSM-RATINGS", "card: " + cardId + ", quality: JacRed: " + strategyName + " request timed out.");
+                apiCallback(null);
+            }, PROXY_TIMEOUT * PROXY_LIST.length + 1000);
 
-  function startPlugin() {
-    window.vod_plugin = true;
-    Lampa.Component.add('vod', component);
-    Lampa.Manifest.plugins = { type: 'video', name: 'My Private Online', version: '1.0.0' };
+            fetchWithProxy(apiUrl, cardId, function(error, responseText) {
+                clearTimeout(timeoutId);
+                if (error) {
+                    console.error("MAXSM-RATINGS", "card: " + cardId + ", quality: JacRed: " + strategyName + " request failed:", error);
+                    apiCallback(null);
+                    return;
+                }
+                if (!responseText) {
+                    if (Q_LOGGING) console.log("MAXSM-RATINGS", "card: " + cardId + ", quality: JacRed: " + strategyName + " failed or empty response.");
+                    apiCallback(null);
+                    return;
+                }
+                try {
+                    var torrents = JSON.parse(responseText);
+                    if (!Array.isArray(torrents) || torrents.length === 0) {
+                        if (Q_LOGGING) console.log("MAXSM-RATINGS", "card: " + cardId + ", quality: JacRed: " + strategyName + " received no torrents.");
+                        apiCallback(null);
+                        return;
+                    }
+                    var bestNumericQuality = -1;
+                    var bestFoundTorrent = null;
 
-    Lampa.Listener.follow('full', function(e) {
-      if (e.type == 'complite') {
-        var btn = $('<div class="full-start__button selector view--online"><span>Смотреть на моем сервере</span></div>');
-        btn.on('hover:enter', function() {
-          Lampa.Activity.push({ component: 'vod', movie: e.data.movie, title: 'Мой онлайн' });
-        });
-        e.render.after(btn);
-      }
+                    for (var i = 0; i < torrents.length; i++) {
+                        var currentTorrent = torrents[i];
+                        var currentNumericQuality = currentTorrent.quality;
+                        
+                        var lowerTitle = (currentTorrent.title || '').toLowerCase();
+                        if (/\b(ts|telesync|camrip|cam)\b/i.test(lowerTitle)) {
+                           if (currentNumericQuality < 720) continue;
+                        }
+
+                        if (typeof currentNumericQuality !== 'number' || currentNumericQuality === 0) {
+                           continue;
+                        }
+
+                        if (Q_LOGGING) {
+                            console.log("MAXSM-RATINGS", "card: " + cardId + ", Torrent: " + currentTorrent.title + " | Quality: " + currentNumericQuality + "p");
+                        }
+                        if (currentNumericQuality > bestNumericQuality) {
+                            bestNumericQuality = currentNumericQuality;
+                            bestFoundTorrent = currentTorrent;
+                        }
+                    }
+                    if (bestFoundTorrent) {
+                        if (Q_LOGGING) console.log("MAXSM-RATINGS", "card: " + cardId + ", quality: JacRed: Found best torrent: \"" + bestFoundTorrent.title + "\" with quality: " + bestNumericQuality + "p");
+                        apiCallback({
+                            quality: translateQuality(bestFoundTorrent.quality || bestNumericQuality),
+                            title: bestFoundTorrent.title
+                        });
+                    } else {
+                        if (Q_LOGGING) console.log("MAXSM-RATINGS", "card: " + cardId + ", quality: JacRed: No suitable torrents found.");
+                        apiCallback(null);
+                    }
+                } catch (e) {
+                    console.error("MAXSM-RATINGS", "card: " + cardId + ", quality: JacRed: " + strategyName + " error parsing response:", e);
+                    apiCallback(null);
+                }
+            });
+        }
+
+        var searchStrategies = [];
+        if (normalizedCard.original_title && /[a-zР°-СЏС‘0-9]/i.test(normalizedCard.original_title)) {
+            searchStrategies.push({
+                title: normalizedCard.original_title.trim(),
+                year: year,
+                exact: true,
+                name: "OriginalTitle Exact Year"
+            });
+        }
+        if (normalizedCard.title && /[a-zР°-СЏС‘0-9]/i.test(normalizedCard.title)) {
+            searchStrategies.push({
+                title: normalizedCard.title.trim(),
+                year: year,
+                exact: true,
+                name: "Title Exact Year"
+            });
+        }
+
+        function executeNextStrategy(index) {
+            if (index >= searchStrategies.length) {
+                if (Q_LOGGING) console.log("MAXSM-RATINGS", "card: " + cardId + ", quality: JacRed: All strategies failed.");
+                callback(null);
+                return;
+            }
+            var strategy = searchStrategies[index];
+            if (Q_LOGGING) console.log("MAXSM-RATINGS", "card: " + cardId + ", quality: JacRed: Trying strategy: " + strategy.name);
+            searchJacredApi(strategy.title, strategy.year, strategy.exact, strategy.name, function(result) {
+                if (result !== null) {
+                    if (Q_LOGGING) console.log("MAXSM-RATINGS", "card: " + cardId + ", quality: JacRed: Successfully found quality: " + result.quality);
+                    callback(result);
+                } else {
+                    executeNextStrategy(index + 1);
+                }
+            });
+        }
+
+        if (searchStrategies.length > 0) {
+            executeNextStrategy(0);
+        } else {
+            if (Q_LOGGING) console.log("MAXSM-RATINGS", "card: " + cardId + ", quality: JacRed: No valid search titles.");
+            callback(null);
+        }
+    }
+
+    // Р¤СѓРЅРєС†РёРё РґР»СЏ СЂР°Р±РѕС‚С‹ СЃ РєРµС€РµРј РєР°С‡РµСЃС‚РІР°
+    function getQualityCache(key) {
+        var cache = Lampa.Storage.get(QUALITY_CACHE) || {};
+        var item = cache[key];
+        return item && (Date.now() - item.timestamp < Q_CACHE_TIME) ? item : null;
+    }
+
+    function saveQualityCache(key, data, localCurrentCard) {
+        if (Q_LOGGING) console.log("MAXSM-RATINGS", "card: " + localCurrentCard + ", quality: Save quality cache");
+        var cache = Lampa.Storage.get(QUALITY_CACHE) || {};
+        cache[key] = {
+            quality: data.quality || null,
+            timestamp: Date.now()
+        };
+        Lampa.Storage.set(QUALITY_CACHE, cache);
+    }
+
+    // Р¤СѓРЅРєС†РёСЏ РїСЂРёРјРµРЅРµРЅРёСЏ РєР°С‡РµСЃС‚РІР° Рє РєР°СЂС‚РѕС‡РєРµ
+    function applyQualityToCard(card, quality, source, qCacheKey) {
+        if (!document.body.contains(card)) return;
+        
+        card.setAttribute('data-quality-added', 'true');
+        var cardView = card.querySelector('.card__view');
+        if (!cardView) return;
+
+        // РЈРґР°Р»СЏРµРј СЃСѓС‰РµСЃС‚РІСѓСЋС‰РёРµ СЌР»РµРјРµРЅС‚С‹ РєР°С‡РµСЃС‚РІР°
+        var existingQualityElements = cardView.getElementsByClassName('card__quality');
+        while(existingQualityElements.length > 0){
+            existingQualityElements[0].parentNode.removeChild(existingQualityElements[0]);
+        }
+
+        // РЎРѕС…СЂР°РЅСЏРµРј РІ РєРµС€ РµСЃР»Рё РґР°РЅРЅС‹Рµ РѕС‚ JacRed
+        if (source === 'JacRed' && quality && quality !== 'NO') {
+            var cardId = card.card_data ? card.card_data.id : 'unknown';
+            saveQualityCache(qCacheKey, { quality: quality }, cardId);
+        }
+
+        if (quality && quality !== 'NO') {
+            var qualityDiv = document.createElement('div');
+            qualityDiv.className = 'card__quality';
+            var qualityInner = document.createElement('div');
+            qualityInner.textContent = quality;
+            qualityDiv.appendChild(qualityInner);
+            cardView.appendChild(qualityDiv);
+        }
+    }
+
+    // РћСЃРЅРѕРІРЅР°СЏ С„СѓРЅРєС†РёСЏ РѕР±РЅРѕРІР»РµРЅРёСЏ РєР°СЂС‚РѕС‡РµРє
+    function updateCards(cards) {
+        for (var i = 0; i < cards.length; i++) {
+            var card = cards[i];
+            if (card.hasAttribute('data-quality-added')) continue;
+            
+            var cardView = card.querySelector('.card__view');
+            if (localStorage.getItem('maxsm_ratings_quality_tv') === 'false') {
+                if (cardView) {
+                    var typeElements = cardView.getElementsByClassName('card__type');
+                    if (typeElements.length > 0) continue;
+                }
+            }
+
+            (function (currentCard) {
+                var data = currentCard.card_data;
+                if (!data) return;
+                
+                var normalizedCard = {
+                    id: data.id || '',
+                    title: data.title || data.name || '',
+                    original_title: data.original_title || data.original_name || '',
+                    release_date: data.release_date || data.first_air_date || '',
+                    type: getCardType(data)
+                };
+                
+                var localCurrentCard = normalizedCard.id;
+                var qCacheKey = normalizedCard.type + '_' + normalizedCard.id;
+                var cacheQualityData = getQualityCache(qCacheKey);
+                
+                // Р•СЃР»Рё РµСЃС‚СЊ РєРµС€ - СЃСЂР°Р·Сѓ РїСЂРёРјРµРЅСЏРµРј
+                if (cacheQualityData) {
+                    if (Q_LOGGING) console.log("MAXSM-RATINGS", "card: " + localCurrentCard + ", quality: Get Quality data from cache");
+                    applyQualityToCard(currentCard, cacheQualityData.quality, 'Cache', qCacheKey);
+                }
+                // Р•СЃР»Рё РЅРµС‚ РєРµС€Р° - Р·Р°РїСЂР°С€РёРІР°РµРј Сѓ JacRed
+                else {
+                    getBestReleaseFromJacred(normalizedCard, localCurrentCard, function (jrResult) {
+                        var quality = (jrResult && jrResult.quality) || null;
+                        applyQualityToCard(currentCard, quality, 'JacRed', qCacheKey);
+                    });
+                }
+            })(card);
+        }
+    }
+
+    // Observer РґР»СЏ РѕС‚СЃР»РµР¶РёРІР°РЅРёСЏ РЅРѕРІС‹С… РєР°СЂС‚РѕС‡РµРє
+    var observer = new MutationObserver(function (mutations) {
+        var newCards = [];
+        for (var m = 0; m < mutations.length; m++) {
+            var mutation = mutations[m];
+            if (mutation.addedNodes) {
+                for (var j = 0; j < mutation.addedNodes.length; j++) {
+                    var node = mutation.addedNodes[j];
+                    if (node.nodeType !== 1) continue;
+                    
+                    if (node.classList && node.classList.contains('card')) {
+                        newCards.push(node);
+                    }
+                    
+                    var nestedCards = node.querySelectorAll('.card');
+                    for (var k = 0; k < nestedCards.length; k++) {
+                        newCards.push(nestedCards[k]);
+                    }
+                }
+            }
+        }
+        if (newCards.length) updateCards(newCards);
     });
-  }
 
-  if (!window.vod_plugin) startPlugin();
+    // РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ РїР»Р°РіРёРЅР°
+    function startPlugin() {
+        console.log("MAXSM-RATINGS-QUALITY", "Plugin started!");
+        
+        // РќР°СЃС‚СЂРѕР№РєРё РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ
+        if (!localStorage.getItem('maxsm_ratings_quality')) {
+            localStorage.setItem('maxsm_ratings_quality', 'true');
+        }
+        if (!localStorage.getItem('maxsm_ratings_quality_inlist')) {
+            localStorage.setItem('maxsm_ratings_quality_inlist', 'true');
+        }
+        if (!localStorage.getItem('maxsm_ratings_quality_tv')) {
+            localStorage.setItem('maxsm_ratings_quality_tv', 'false');
+        }
+
+        // Р—Р°РїСѓСЃРє observer РµСЃР»Рё РІРєР»СЋС‡РµРЅРѕ РѕС‚РѕР±СЂР°Р¶РµРЅРёРµ РєР°С‡РµСЃС‚РІР° РІ СЃРїРёСЃРєР°С…
+        if (localStorage.getItem('maxsm_ratings_quality_inlist') === 'true') {
+            observer.observe(document.body, { childList: true, subtree: true });
+            console.log('MAXSM-RATINGS: observer Start');
+            
+            // РћР±СЂР°Р±РѕС‚РєР° СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓСЋС‰РёС… РєР°СЂС‚РѕС‡РµРє
+            var existingCards = document.querySelectorAll('.card');
+            if (existingCards.length) updateCards(existingCards);
+        }
+    }
+
+    if (!window.maxsmRatingsQualityPlugin) {
+        window.maxsmRatingsQualityPlugin = true;
+        startPlugin();
+    }
 })();
