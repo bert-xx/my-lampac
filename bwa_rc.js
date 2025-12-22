@@ -3,14 +3,14 @@
 
   var Defined = {
     api: 'lampac',
-    // ЗАМЕНИТЕ ЭТУ ССЫЛКУ на ваш адрес из Koyeb (слэш в конце обязателен!)
+    
     localhost: 'https://valuable333.koyeb.app/', 
     apn: ''
   };
 
   var unic_id = Lampa.Storage.get('lampac_unic_id', Lampa.Utils.uid(8));
 
-  // Функция подготовки ссылок (чистая, без шпионажа)
+  
   function account(url) {
     url = url + '';
     if (url.indexOf('uid=') == -1) {
@@ -32,7 +32,7 @@
       var _this = this;
       this.loading(true);
       
-      // Запрашиваем балансеры у ВАШЕГО Lampac
+      
       var url = this.requestParams(Defined.localhost + 'lite/events');
       network.silent(account(url), function(json) {
         if (json.online) {
