@@ -1,102 +1,93 @@
-(function() {
+(function () {
     'use strict';
 
-    // --- Настройки и переменные Filmix ---
-    var fxapi_token = Lampa.Storage.get('fxapi_token', '');
-    var fxapi_uid = Lampa.Storage.get('fxapi_uid', '');
-    if (!fxapi_uid) {
-        fxapi_uid = Lampa.Utils.uid(16);
-        Lampa.Storage.set('fxapi_uid', fxapi_uid);
-    }
+    // --- Глобальные настройки ---
+    var public_api = 'https://bwa.to/php/online.php'; // Проверенный публичный сервер
     var fx_api_url = 'http://filmixapp.vip/api/v2/';
-    var fx_dev_token = 'user_dev_apk=2.0.1&user_dev_id=' + fxapi_uid + '&user_dev_name=Lampa&user_dev_os=11&user_dev_vendor=FXAPI&user_dev_token=';
-    
-    // --- Настройки публичных балансеров ---
-    var public_api_url = 'https://lam.mx/lite/events'; // Публичный API Lampa
-    var cors_proxy = 'http://cors.cfhttp.top/';
+    var cors_proxy = 'https://cors.apn.monster/';
 
-    function UnifiedOnline(object) {
+    // --- Настройки Filmix из твоего кода ---
+    var fx_token = Lampa.Storage.get('fxapi_token', '');
+    var fx_uid = Lampa.Storage.get('fxapi_uid', '');
+    if (!fx_uid) {
+        fx_uid = Lampa.Utils.uid(16);
+        Lampa.Storage.set('fxapi_uid', fx_uid);
+    }
+    var dev_token = 'user_dev_apk=2.0.1&user_dev_id=' + fx_uid + '&user_dev_name=Lampa&user_dev_os=11&user_dev_vendor=FXAPI&user_dev_token=';
+
+    function UnifiedComponent(object) {
         var network = new Lampa.Reguest();
-        var scroll = new Lampa.Scroll({mask: true, over: true});
-        var files = new Lampa.Explorer(object);
-        var filter = new Lampa.Filter(object);
-        
-        var sources = ['filmix', 'public'];
-        var current_source = Lampa.Storage.get('online_last_source', 'filmix');
+        var scroll  = new Lampa.Scroll({mask: true, over: true});
+        var files   = new Lampa.Explorer(object);
+        var filter  = new Lampa.Filter(object);
+        var source  = Lampa.Storage.get('unified_source', 'filmix');
         var results = [];
-        var initialized = false;
 
-        this.create = function() {
+        this.create = function () {
             var _this = this;
             this.prepare();
-            this.startSearch();
+            this.search();
             return files.render();
         };
 
-        this.prepare = function() {
+        this.prepare = function () {
             files.appendFiles(scroll.render());
             files.appendHead(filter.render());
             scroll.body().addClass('torrent-list');
-            scroll.minus(files.render().find('.explorer__files-head'));
         };
 
-        this.startSearch = function() {
+        this.search = function () {
             this.activity.loader(true);
-            if (current_source === 'filmix') {
-                this.searchFilmix();
-            } else {
-                this.searchPublic();
-            }
+            scroll.clear();
+            this.renderFilter();
+
+            if (source === 'filmix') this.findFilmix();
+            else this.findPublic();
         };
 
         // --- ЛОГИКА FILMIX ---
-        this.searchFilmix = function() {
+        this.findFilmix = function () {
             var _this = this;
-            if (!fxapi_token) return this.authFilmix();
+            if (!fx_token) return this.authFilmix();
 
             var query = object.movie.title || object.movie.name;
-            var url = fx_api_url + 'search?story=' + encodeURIComponent(query) + '&' + fx_dev_token + fxapi_token;
+            var url = fx_api_url + 'search?story=' + encodeURIComponent(query) + '&' + dev_token + fx_token;
             
-            network.silent(url, function(json) {
+            network.silent(url, function (json) {
                 if (json && json.length) {
-                    // Ищем максимально точное совпадение по году
                     var year = (object.movie.release_date || object.movie.first_air_date || '0000').slice(0, 4);
                     var card = json.find(function(c) { return c.alt_name.indexOf(year) !== -1; }) || json[0];
-                    _this.loadFilmixLinks(card.id);
-                } else {
-                    _this.empty();
-                }
-            }, this.empty.bind(this));
-        };
-
-        this.loadFilmixLinks = function(id) {
-            var _this = this;
-            network.silent(fx_api_url + 'post/' + id + '?' + fx_dev_token + fxapi_token, function(found) {
-                _this.activity.loader(false);
-                if (found && found.player_links) {
-                    _this.drawFilmix(found);
+                    _this.loadFxLinks(card.id);
                 } else _this.empty();
             }, this.empty.bind(this));
         };
 
-        this.authFilmix = function() {
+        this.loadFxLinks = function (id) {
             var _this = this;
-            network.quiet(fx_api_url + 'token_request?' + fx_dev_token, function(found) {
+            network.silent(fx_api_url + 'post/' + id + '?' + dev_token + fx_token, function (found) {
+                _this.activity.loader(false);
+                if (found && found.player_links) _this.drawFx(found);
+                else _this.empty();
+            }, this.empty.bind(this));
+        };
+
+        this.authFilmix = function () {
+            var _this = this;
+            network.quiet(fx_api_url + 'token_request?' + dev_token, function (found) {
                 if (found.status == 'ok') {
                     Lampa.Modal.open({
                         title: 'Авторизация Filmix',
-                        html: '<div>Введите код на <b>filmix.my/consoles</b>:<br><br><h1 style="text-align:center">' + found.user_code + '</h1></div>',
-                        onBack: function() { Lampa.Modal.close(); Lampa.Activity.backward(); }
+                        html: '<div style="padding: 20px; text-align: center;">Введите код на <b>filmix.my/consoles</b>:<br><br><h1 style="font-size: 3em">' + found.user_code + '</h1></div>',
+                        onBack: function () { Lampa.Modal.close(); Lampa.Activity.backward(); }
                     });
-                    
-                    var check = setInterval(function() {
-                        network.silent(fx_api_url + 'user_profile?' + fx_dev_token + found.code, function(json) {
+                    var check = setInterval(function () {
+                        network.silent(fx_api_url + 'user_profile?' + dev_token + found.code, function (json) {
                             if (json && json.user_data) {
                                 clearInterval(check);
                                 Lampa.Storage.set('fxapi_token', found.code);
-                                fxapi_token = found.code;
+                                fx_token = found.code;
                                 Lampa.Modal.close();
-                                _this.startSearch();
+                                _this.search();
                             }
                         });
                     }, 3000);
@@ -105,101 +96,101 @@
         };
 
         // --- ЛОГИКА ПУБЛИЧНЫХ БАЛАНСЕРОВ ---
-        this.searchPublic = function() {
+        this.findPublic = function () {
             var _this = this;
-            var url = public_api_url + '?id=' + object.movie.id + '&title=' + encodeURIComponent(object.movie.title);
+            var url = public_api + '?id=' + object.movie.id + '&title=' + encodeURIComponent(object.movie.title);
             if (Lampa.Platform.is('browser')) url = cors_proxy + url;
 
-            network.silent(url, function(json) {
+            network.silent(url, function (json) {
                 _this.activity.loader(false);
-                if (json && json.length) {
-                    _this.drawPublic(json);
-                } else _this.empty();
+                if (json && json.length) _this.drawPublic(json);
+                else if (json && json.data) _this.drawPublic(json.data); // На случай другого формата JSON
+                else _this.empty();
             }, this.empty.bind(this));
         };
 
         // --- ОТРИСОВКА ---
-        this.drawFilmix = function(data) {
-            var items = [];
-            // Парсинг плейлиста Filmix (упрощенно)
-            if (data.player_links.movie) {
-                data.player_links.movie.forEach(function(m) {
-                    items.push({ title: m.translation, url: m.link, quality: 'HD' });
-                });
-            }
-            this.renderItems(items);
-        };
-
-        this.drawPublic = function(json) {
-            var items = json.map(function(s) {
-                return { title: s.name, url: s.url, quality: s.quality || '', subtitle: s.balancer };
-            });
-            this.renderItems(items);
-        };
-
-        this.renderItems = function(items) {
+        this.drawFx = function (data) {
             var _this = this;
-            scroll.clear();
-            this.renderFilter();
-            
-            items.forEach(function(item) {
-                var html = Lampa.Template.get('button_card', { title: item.title, subtitle: item.subtitle || item.quality });
-                html.on('hover:enter', function() {
-                    Lampa.Player.play({ url: item.url, title: object.movie.title, card: object.movie });
+            var playlist = data.player_links.movie || [];
+            if (playlist.length === 0 && data.player_links.playlist) {
+                // Если это сериал, Filmix отдает сложный объект, упростим для вывода
+                this.empty('Сериалы Filmix временно доступны через выбор серий в самом плеере');
+                return;
+            }
+            playlist.forEach(function (m) {
+                var html = Lampa.Template.get('button_card', { title: m.translation, subtitle: 'Filmix' });
+                html.on('hover:enter', function () {
+                    Lampa.Player.play({ url: m.link, title: object.movie.title, card: object.movie });
                 });
-                scroll.append(html);
+                _this.append(html);
             });
             Lampa.Controller.enable('content');
         };
 
-        this.renderFilter = function() {
+        this.drawPublic = function (json) {
+            var _this = this;
+            json.forEach(function (s) {
+                var html = Lampa.Template.get('button_card', { title: s.name || s.title, subtitle: s.balancer || 'Источник' });
+                html.on('hover:enter', function () {
+                    Lampa.Player.play({ url: s.url, title: object.movie.title, card: object.movie });
+                });
+                _this.append(html);
+            });
+            Lampa.Controller.enable('content');
+        };
+
+        this.append = function (item) {
+            item.on('hover:focus', function (e) { scroll.update($(e.target), true); });
+            scroll.append(item);
+        };
+
+        this.renderFilter = function () {
+            var _this = this;
             filter.set('sort', [
-                { title: 'Filmix', source: 'filmix', selected: current_source === 'filmix' },
-                { title: 'Балансеры (Public)', source: 'public', selected: current_source === 'public' }
+                { title: 'Filmix', source: 'filmix', selected: source === 'filmix' },
+                { title: 'Балансеры (Kodik, Rezka...)', source: 'public', selected: source === 'public' }
             ]);
-            
-            filter.onSelect = function(type, a, b) {
-                if (type === 'sort') {
-                    current_source = a.source;
-                    Lampa.Storage.set('online_last_source', a.source);
-                    Lampa.Select.close();
-                    _this.startSearch();
-                }
+            filter.onSelect = function (type, a) {
+                source = a.source;
+                Lampa.Storage.set('unified_source', a.source);
+                Lampa.Select.close();
+                _this.search();
             };
         };
 
-        this.empty = function() {
+        this.empty = function (m) {
             this.activity.loader(false);
             scroll.clear();
             this.renderFilter();
-            scroll.append(Lampa.Template.get('empty', {title: 'Ничего не найдено'}));
+            scroll.append(Lampa.Template.get('empty', { title: 'Ничего не найдено', desc: m || '' }));
+            Lampa.Controller.enable('content');
         };
 
-        this.start = function() {
+        this.start = function () {
             Lampa.Controller.add('content', {
-                toggle: function() { Lampa.Controller.collectionSet(scroll.render()); Lampa.Controller.collectionFocus(false, scroll.render()); },
-                left: function() { Lampa.Controller.toggle('menu'); },
-                up: function() { Lampa.Controller.toggle('head'); },
-                back: function() { Lampa.Activity.backward(); }
+                toggle: function () { Lampa.Controller.collectionSet(scroll.render()); Lampa.Controller.collectionFocus(false, scroll.render()); },
+                left: function () { Lampa.Controller.toggle('menu'); },
+                up: function () { Lampa.Controller.toggle('head'); },
+                back: function () { Lampa.Activity.backward(); }
             });
             Lampa.Controller.toggle('content');
         };
 
-        this.pause = function() {};
-        this.stop = function() {};
-        this.destroy = function() { network.clear(); scroll.destroy(); files.destroy(); };
+        this.pause = function () {};
+        this.stop = function () {};
+        this.destroy = function () { network.clear(); scroll.destroy(); files.destroy(); };
     }
 
-    // Регистрация в Lampa
-    function start() {
-        Lampa.Component.add('fx_unified', UnifiedOnline);
-        Lampa.Listener.follow('full', function(e) {
+    function init() {
+        Lampa.Component.add('unified_online', UnifiedComponent);
+        Lampa.Listener.follow('full', function (e) {
             if (e.type == 'complite') {
                 var btn = $('<div class="full-start__button selector view--online"><span>Смотреть онлайн</span></div>');
-                btn.on('hover:enter', function() {
+                btn.on('hover:enter', function () {
                     Lampa.Activity.push({
                         title: 'Онлайн',
-                        component: 'fx_unified',
+                        component: 'unified_online',
                         movie: e.data.movie,
                         page: 1
                     });
@@ -209,8 +200,8 @@
         });
     }
 
-    if (!window.fx_unified_plugin) {
-        window.fx_unified_plugin = true;
-        start();
+    if (!window.unified_online_loaded) {
+        window.unified_online_loaded = true;
+        init();
     }
 })();
