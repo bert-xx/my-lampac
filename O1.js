@@ -1867,29 +1867,15 @@ var all = Lampa.Storage.get('clarification_search','{}');
         });
       }
     } catch (e) {}
-    if (Lampa.Manifest.app_digital >= 177) {
-      var balansers_sync = ["filmix", 'filmixtv', "fxapi", "rezka", "rhsprem", "lumex", "videodb", "collaps", "collaps-dash", "hdvb", "zetflix", "kodik", "ashdi", "kinoukr", "kinotochka", "remux", "iframevideo", "cdnmovies", "anilibria", "animedia", "animego", "animevost", "animebesst", "redheadsound", "alloha", "animelib", "moonanime", "kinopub", "vibix", "vdbmovies", "fancdn", "cdnvideohub", "vokino", "rc/filmix", "rc/fxapi", "rc/rhs", "vcdn", "videocdn", "mirage", "hydraflix","videasy","vidsrc","movpi","vidlink","twoembed","autoembed","rgshows","smashystream","autoembed","pidtor", "videoseed", "iptvonline", "veoveo"];
+        if (Lampa.Manifest.app_digital >= 177) {
+      var balansers_sync = ["filmix", 'filmixtv', "fxapi", "rezka", "rhsprem", "lumex", "videodb", "collaps", "collaps-dash", "hdvb", "zetflix", "kodik", "ashdi", "kinoukr", "kinotochka", "remux", "iframevideo", "cdnmovies", "anilibria", "animedia", "animego", "animevost", "animebesst", "redheadsound", "alloha", "animelib", "moonanime", "kinopub", "vibix", "vdbmovies", "fancdn", "cdnvideohub", "vokino", "rc/filmix", "rc/fxapi", "rc/rhs", "vcdn", "videocdn", "mirage", "hydraflix","videasy","vidsrc","movpi","vidlink","twoembed","autoembed","rgshows","pidtor", "videoseed", "iptvonline", "veoveo"];
       balansers_sync.forEach(function(name) {
         Lampa.Storage.sync('online_choice_' + name, 'object_object');
       });
       Lampa.Storage.sync('online_watched_last', 'object_object');
     }
-    var hint1 = '<div style="display: block;"><div class="myBot" style="display:none; line-height: 0.5;color: #ffffff;font-family: &quot;SegoeUI&quot;, sans-serif;font-size: 1em;box-sizing: border-box;outline: none;user-select: none;display: flex;-webkit-box-align: start;align-items: flex-start;position: relative;background-color: rgba(255, 255, 255, 0.1);border-radius: 0.3em;"><div style="background-color: rgba(255, 255, 255, 0.1); padding: 0.7em; -webkit-box-flex: 1; -webkit-flex-grow: 1; -moz-box-flex: 1; -ms-flex-positive: 1; flex-grow: 1; line-height: 1.7;"><span style="background: #ffe216;color: #000;border-radius: 0.3em;padding: 0.3em;margin-right: 0.5em;">Подсказка</span>Тормозит или не воспроизводится видео? Переключи <b>Источник</b> с помощью кнопки над текстом.</div></div></div>'
-// ВТОРАЯ ПОДСКАЗКА ПРО ОГРАНИЧЕНИЕ УДАЛЕНА
-    var hints = [hint1]
-    Lampa.Storage.listener.follow('change', function(event) {
-        if (event.name == 'activity') {
-            if (Lampa.Activity.active().component == 'lampac_z01') {
-                var randomHint = hints[Math.floor(Math.random() * hints.length)]
-                var add_ads = setInterval(function() {
-                    if (document.querySelector('.online-prestige-watched') !== null) {
-                        $('.online-prestige-watched').html(randomHint);
-                        clearInterval(add_ads);
-                    }
-                }, 50);
-            }
-        }
-    })
+
+    // ← здесь больше ничего нет, подсказка удалена полностью
   }
   if (!window.lampac_z01_plugin) startPlugin();
 })();
